@@ -176,8 +176,8 @@ class IEMSampleSheet(object):
             sample = OrderedDict()
             sample['FCID'] = FCID
             sample['Lane'] = lane
-            sample['Index'] = index_tag
             sample['SampleID'] = line['Sample_ID']
+            sample['Index'] = index_tag
             sample['Description'] = line['Description']
 
             samplesheet.append(sample)
@@ -227,7 +227,21 @@ class CasavaSampleSheet(object):
         self._data.append(line)
 
     def __repr__(self):
-        return '\n'.join([str(x) for x in self._data])
+        s = []
+        s.append(','.join(self._content_headers))
+
+        for line in self._data:
+            sample = []
+            for header in self._content_headers:
+                sample.append(str(line.get(header, '')))
+
+            s.append(','.join(sample))
+
+        return '\n'.join(s)
+
+    def __iter__(self):
+        for sample in self._data:
+            yield sample
 
     def _load_data(self, ss):
         '''
@@ -295,4 +309,54 @@ class CasavaSampleSheet(object):
                     illegal_names.append(line)
                     break
         return illegal_names
+
+    def fix_illegal_names(self):
+        """Replace illegal characters in SampleID and SampleProject pairs
+        """
+        for line in self.illegal_names:
+            for c in self.illegal_characters:
+                line['SampleID'] = str(line['SampleID']).strip().replace(c,'_').strip('_')
+                line['SampleProject'] = str(line['SampleProject']).strip().replace(c,'_').strip('_')
+
+
+    def expected_output(self):
+        '''
+        The expected outputs from the sample sheet content
+        '''
+        projects = {}
+        for line in self:
+            project = 'Project_%s' % line['SampleProject']
+            sample = 'Sample_%s' % line['SampleID']
+            if project not in projects:
+                samples = {}
+            else:
+                samples = projects[project]
+            if sample not in samples:
+                samples[sample] = []
+            if line['Index'].strip() == '':
+                index = 'NoIndex'
+            else:
+                index = line['Index']
+            samples[sample].append('%s_%s_L%03d' % (line['SampleID'],
+                                                    index,
+                                                    line['Lane']))
+            projects[project] = samples
+
+        return projects
+
+    def write(self, fp):
+        s = []
+        s.append(','.join(self._content_headers))
+
+        for line in self._data:
+            sample = []
+            for header in self._content_headers:
+                sample.append(str(line.get(header, '')))
+
+            s.append(','.join(sample))
+
+        out = '\n'.join(s)
+        fp.write(out)
+        fp.close()
+
 

@@ -19,6 +19,55 @@ def log(category, message, *args, **kwargs):
         message.replace('{}', click.style('{}', fg='yellow')).format(*args, **kwargs)))
 
 
+def truncate_barcode(sequence, length):
+    """Return barcode sequence truncated to requested length.
+    """
+    try:
+        index5, index7 = sequence.split('-')
+        #dual index
+        if len(index5) >= length:
+            newindex5 = index5[:length]
+        if len(index7) >= length:
+            newindex7 = index7[:length]
+
+        return '-'.join([newindex5, newindex7])
+    except ValueError:
+        # No hyphen: single index barcode
+        return sequence[:length]
+
+def verify_spreadsheet(ss):
+    '''
+    Check if the spreadsheet has invalid format
+    '''
+    log('info', 'Checking for any invalid parameters in samplesheet')
+    #Check for duplicated names
+    status = 0
+    duplicated_names = ss.duplicated_names
+    if len(duplicated_names) > 0:
+        status = 1
+        for duplicate in duplicates:
+            log('warning', 'Duplicated SampleID/SampleProject in lane %s (%s/%s)'
+                            % (lane['Lane'], lane['SampleID'], lane['SampleProject']))
+
+    # Check for illegal names
+    illegal_names = ss.illegal_names
+    if len(illegal_names) > 0:
+        status = 1
+        for line in illegal_names:
+            log('warning', 'Spaces in SampleID/SampleProject in lane %s (%s/%s)'
+                                % (lane['Lane'], lane['SampleID'], lane['SampleProject']))
+
+    #Check for Empty names
+    empty_names = ss.empty_names
+    if len(empty_names) > 0:
+        status = 1
+        for line in empty_names:
+            log('warning', "Empty SampleID and/or SampleProject name in lane %s (%s/%s)" %
+                            (line['Lane'],line['SampleID'],line['SampleProject']))
+
+    return status
+
+
 @click.command(context_settings=dict(
                help_option_names=['-h', '--help'],
                ignore_unknown_options=True,))
@@ -53,85 +102,54 @@ def prepare_sample_sheet(samplesheet, output, view, fix_spaces, fix_empty_projec
 
     #Read the data as CSV
     data = get_casava_sample_sheet(samplesheet)
-    print data
 
-    '''
     #Truncate barcodes
     if truncate_barcodes:
         barcode_length = truncate_barcodes
-
-
-    # Truncate barcodes
-    if options.barcode_len is not None:
-        barcode_len = options.barcode_len
+        log('Info', 'Truncating the barcodes to length: %s' % barcode_length)
         for line in data:
-            barcode = truncate_barcode(line['Index'],options.barcode_len)
-            print "Lane %d '%s/%s': barcode '%s' -> '%s'" \
-                % (line['Lane'],
-                   line['SampleProject'],
-                   line['SampleID'],
-                   line['Index'],
-                   barcode)
+            barcode = truncate_barcode(line['Index'], barcode_length)
+            log('Info', '\tLane %d "%s/%s": barcode "%s" -> "%s"' %
+                            (line['Lane'],
+                             line['SampleProject'],
+                             line['SampleID'],
+                             line['Index'],
+                             barcode))
             line['Index'] = barcode
-    # Fix spaces
-    if options.fix_spaces:
+
+    #Fix Spaces
+    if fix_spaces:
+        log('Info', 'Fixing illegal characters in SampleID and SampleProject pairs')
         data.fix_illegal_names()
-    # Fix empty projects
-    if options.fix_empty_projects:
+
+    if fix_empty_projects:
+        log('Info', 'Fixing missing SampleProject in samples')
         for line in data:
             if not line['SampleProject']:
                 line['SampleProject'] = line['SampleID']
-    # Fix duplicates
-    if options.fix_duplicates:
-        data.fix_duplicated_names()
-    # Print transposed data in tab-delimited format
-    if options.view:
-        data.transpose().write(fp=sys.stdout,delimiter='\t')
-    # Check for non-unique id/project combinations, spaces and empty names
-    check_status = 0
-    # Duplicated names
-    duplicates = data.duplicated_names
-    if len(duplicates) > 0:
-        check_status = 1
-        for duplicate_set in duplicates:
-            for lane in duplicate_set:
-                logging.warning("Duplicated SampleID/SampleProject in lane %s (%s/%s)" %
-                                (lane['Lane'],lane['SampleID'],lane['SampleProject']))
-    # Illegal characters/spaces in names
-    illegal_names = data.illegal_names
-    if len(illegal_names) > 0:
-        check_status = 1
-        for lane in illegal_names:
-            logging.warning("Spaces in SampleID/SampleProject in lane %s (%s/%s)" %
-                            (lane['Lane'],lane['SampleID'],lane['SampleProject']))
-    # Empty names
-    empty_names = data.empty_names
-    if len(empty_names) > 0:
-        check_status = 1
-        for lane in empty_names:
-            logging.warning("Empty SampleID and/or SampleProject name in lane %s (%s/%s)" %
-                            (lane['Lane'],lane['SampleID'],lane['SampleProject']))
-    # Predict outputs
-    if check_status == 0 or options.ignore_warnings:
-        projects = data.predict_output()
-        print "Predicted output:"
+    if view:
+        log('info', 'viewing data')
+        print data
+
+    invalid = verify_spreadsheet(data)
+
+    #Check how it will be the outputs
+    if not invalid or ignore_warnings:
+        projects = data.expected_output()
+        print 'Output:'
         for project in projects:
-            print "%s (%d samples)" % (project,len(projects[project]))
+            print '%s (%d samples)' % (project, len(projects[project]))
             for sample in projects[project]:
-                print "\t%s" % sample
-                for sub_sample in projects[project][sample]:
-                    print "\t\t%s" % sub_sample
+                print '\t%s' % sample
+                for subsample in projects[project][sample]:
+                    print "\t\t%s" % subsample
 
-    # Write out new sample sheet
-    if options.samplesheet_out:
-        if check_status and not options.ignore_warnings:
-            logging.error("please fix above errors in sample sheet data")
-        else:
-            data.write(options.samplesheet_out)
-    # Finish
-    sys.exit(check_status)
-    '''
+    if invalid and not ignore_warnings:
+        log('error', 'Please fix above errors in sample sheet')
+    else:
+        data.write(output)
 
+    sys.exit(invalid)
 
 if __name__ == '__main__':
     prepare_sample_sheet()
