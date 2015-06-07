@@ -88,13 +88,16 @@ def verify_spreadsheet(ss):
                 default = 0,
                help='trim barcode sequences in sample sheet to number of bases specified.'
                         'Default is to leave barcode sequence unaltered.')
+@click.option('--set-project', '-p',
+                type=str,
+                help="Update/set values in the 'SampleProject' field")
 @click.version_option(__version__)
 @click.argument('samplesheet', type=click.Path(exists=True))
 @click.argument('output',
                 type=click.File(mode='w'))
 @click.argument('prepare_ss_args', nargs=-1, type=click.UNPROCESSED)
 def prepare_sample_sheet(samplesheet, output, view, fix_spaces, fix_empty_projects,
-                           ignore_warnings, truncate_barcodes, prepare_ss_args):
+                           ignore_warnings, truncate_barcodes, set_project, prepare_ss_args):
 
     if not os.path.isfile(samplesheet):
         log("Error", "sample sheet not found:" , samplesheet)
@@ -102,6 +105,12 @@ def prepare_sample_sheet(samplesheet, output, view, fix_spaces, fix_empty_projec
 
     #Read the data as CSV
     data = get_casava_sample_sheet(samplesheet)
+
+    # Update the SampleProject field
+    if set_project:
+        for line in data:
+            print "Setting SampleProject for lane %d: '%s'" % (line['Lane'],set_project)
+            line['SampleProject'] = set_project
 
     #Truncate barcodes
     if truncate_barcodes:
